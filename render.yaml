@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: batstateu-personnel-monitoring
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: pnpm install && pnpm --filter @workspace/personnel-monitoring run build && pnpm --filter @workspace/api-server run build
+    startCommand: node artifacts/api-server/dist/index.mjs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: FACIAL_RECOGNITION_API_KEY
+        sync: false
