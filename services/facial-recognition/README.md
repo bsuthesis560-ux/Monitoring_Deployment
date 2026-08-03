@@ -3,8 +3,20 @@
 This service runs **on your local machine** (the one connected to the IP cameras).
 It detects faces from one or more RTSP streams and logs attendance to the web app.
 
-This version uses **YOLOv8 + FaceNet + DeepSORT** for faster, more accurate recognition
-compared to the previous InsightFace-based implementation.
+This version uses **YOLO11 + ArcFace (InsightFace buffalo_l) + DeepSORT** for fast,
+lighting-robust recognition with walk-through optimisation.
+
+---
+
+## What's new in this version
+
+| Feature | Details |
+|---|---|
+| **YOLO11 face detector** | `yolo11n-face.pt` — faster and more accurate than YOLOv8 |
+| **ArcFace embeddings** | 512-dim via InsightFace `buffalo_l` (replaces FaceNet) |
+| **4× lighting augmentation** | Each registered photo generates standard / bright / dark / CLAHE embeddings |
+| **Walk-through detection** | Three-tier motion thresholds; instant confirm at 0.38 cosine distance |
+| **EMA embedding smoothing** | Stable recognition across blurry mid-stride frames |
 
 ---
 
@@ -34,27 +46,19 @@ python control_panel.py
 build_exe.bat
 ```
 
-This installs dependencies and produces:
-
-```
-dist\BSU_FaceRec_Launcher.exe
-```
-
-Double-click the `.exe` to launch the control panel on any Windows machine.
+This produces `dist\BSU_FaceRec_Launcher.exe`.
 
 > **Important:** The `.exe` is only the launcher GUI. The machine must still have Python
-> installed with the facial recognition dependencies (`requirements.txt`) so the launcher
-> can start the recognition service process.
+> installed with the facial recognition dependencies (`requirements.txt`).
 
 **Files to copy alongside the `.exe` when distributing:**
 
 | File / Folder | Purpose |
 |---|---|
 | `facial_recognition_service.py` | Recognition service (started by launcher) |
-| `dashboard_server.py` | Local web dashboard for service control |
 | `.env` | Camera IPs, credentials, API key |
 | `registered_personnel/` | Enrolled personnel photos |
-| `yolov8n-face.pt` | YOLO model weights |
+| `yolo11n-face.pt` | YOLO11 face model weights *(required)* |
 
 ---
 
@@ -66,125 +70,76 @@ Double-click the `.exe` to launch the control panel on any Windows machine.
 pip install -r requirements.txt
 ```
 
-**Optional — GPU acceleration (highly recommended if you have an NVIDIA GPU):**
+For NVIDIA GPU acceleration also install the CUDA-enabled PyTorch wheels:
+
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
-GPU acceleration makes recognition 5–10× faster. The service auto-detects CUDA and
-uses fp16 + torch.compile when available.
 
-### 2. Configure cameras and API
+### 2. Configure the `.env` file
 
-Copy the template and fill in your values:
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env`:
+| Variable | Description |
+|---|---|
+| `API_URL` | Full URL of your deployed web app |
+| `API_KEY` | Must match `FACIAL_RECOGNITION_API_KEY` in the web app secrets |
+| `CAM1_IP` | IP address of camera 1 |
+| `CAM1_USER` | Camera username (usually `admin`) |
+| `CAM1_PASS` | Camera password |
+| `CAM1_PORT` | RTSP port (default `554`) |
+| `CAM1_STREAM_PATH` | RTSP path (e.g. `/Streaming/Channels/101`) |
 
-```env
-API_URL=https://your-app.replit.app
-API_KEY=your-facial-recognition-api-key
+Add `CAM2_*`, `CAM3_*` … for additional cameras.
 
-# Camera 1
-CAM1_NAME=Camera 1
-CAM1_IP=192.168.1.64
-CAM1_USER=admin
-CAM1_PASS=your_password
+Optional:
 
-# Camera 2 (add as many CAMn_* groups as needed)
-CAM2_NAME=Camera 2
-CAM2_IP=192.168.1.65
-CAM2_USER=admin
-CAM2_PASS=your_password
-```
+| Variable | Default | Description |
+|---|---|---|
+| `YOLO_FACE_MODEL` | `yolo11n-face.pt` | Path to YOLO face model weights |
+| `YOLO_IMGSZ` | `640` | YOLO input size (use `480` for ~40 % faster inference) |
 
-- `API_URL` — your published Replit app URL
-- `API_KEY` — the value of `FACIAL_RECOGNITION_API_KEY` from your Replit Secrets
-- `CAMn_*` — one block per camera. The system auto-discovers all defined cameras
-
-> **Important:** Add `.env` to `.gitignore` — it contains passwords.
-
-### 3. Set the API key in Replit
-
-In your Replit project, add a Secret:
-
-| Key | Value |
-|-----|-------|
-| `FACIAL_RECOGNITION_API_KEY` | any strong random string |
-
-### 4. Run the service
+### 3. Run the service
 
 ```bash
 python facial_recognition_service.py
 ```
 
-On first run, the YOLOv8 face model (`yolov8n-face.pt`) is downloaded automatically
-if not already present. FaceNet weights are also downloaded on first run via
-`facenet-pytorch`. Subsequent startups use a local embedding cache for instant loading.
+Press **q** in any camera window to quit.
 
 ---
 
-## Dashboard Server (Local Web Control Panel)
+## InsightFace model download (first run)
 
-`dashboard_server.py` is a lightweight Flask server that runs locally alongside the
-recognition service. It provides:
-
-- Web dashboard at `http://localhost:5000`
-- Start / stop the facial recognition service as a managed subprocess
-- Live log streaming to the browser via SSE
-- Camera configuration editor (reads and writes `.env`)
-- Camera RTSP connection tester
-
-```bash
-pip install flask python-dotenv opencv-python
-python dashboard_server.py
-```
-
-The dashboard server is also started automatically by `control_panel.py`.
+On first run InsightFace will automatically download the `buffalo_l` recognition pack
+(~300 MB) to `~/.insightface/models/buffalo_l/`. An internet connection is required
+for this one-time download. Subsequent runs use the cached model.
 
 ---
 
-## How it works
+## API compatibility
 
-1. On startup, downloads all registered personnel photos from the web API into `registered_personnel/`
-2. Builds a multi-angle embedding database (front, left, right, top views per person)
-3. Connects to **every** configured camera in parallel (each on its own thread)
-4. Runs **YOLOv8** face detection + **FaceNet** embedding + **DeepSORT** tracking continuously
-5. When a face matches, POSTs the Employee ID + camera name to `/api/logs`
-   (60-second cooldown per person, alternating TIME IN / TIME OUT)
-6. A window per camera shows live feeds with face overlays and a status HUD
-7. The Staff Monitoring page polls `/api/logs` and updates automatically
+The service communicates with the web app through two endpoints:
 
-## What changed from the previous version
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/logs/personnel-photos` | GET | Download registered personnel photos |
+| `/api/logs` | POST | Submit an attendance log entry |
 
-| Component | Before | After |
-|-----------|--------|-------|
-| Face detection | InsightFace (buffalo_l) | **YOLOv8** face detector |
-| Face recognition | ArcFace (InsightFace) | **FaceNet** (VGGFace2, 512-dim) |
-| Face tracking | Custom IOU tracker | **DeepSORT** (Kalman filter) |
-| GPU acceleration | ONNX Runtime GPU | **PyTorch CUDA + fp16 + torch.compile** |
-| Embedding cache | None | **Disk cache** (instant restarts after first run) |
-| Re-entry speed | Full vote window every time | **Identity cache** (instant re-ID within 8s) |
+Both require the `x-api-key` header set to your `API_KEY` value.
 
-## Multi-camera behavior
+---
 
-- Each camera runs independently — a network drop on one camera never affects the others
-- Console output tags each event with the camera name:
-  `[Logged] Name: Juan Dela Cruz | Camera: Camera 1 | Time: 08:01 AM | Type: TIME IN`
-- One window per camera with live overlays; press `q` in any window to quit
-- To switch from home network to campus network, just change the IP values in `.env`
+## Troubleshooting
 
-## Department-based access control
-
-- **Admin** users see all logs from all departments
-- **User** accounts only see logs from their own department
-
-## Notes
-
-- All camera IPs must be reachable from the machine running this script
-- Photos uploaded during registration are used directly — no manual file copying needed
-- Duplicate logging within the cooldown window is automatically suppressed
-- The embedding cache (`registered_personnel/embeddings_cache.pkl`) is invalidated
-  automatically when personnel photos are added, removed, or changed
+| Symptom | Fix |
+|---|---|
+| `yolo11n-face.pt not found` | Place `yolo11n-face.pt` next to `facial_recognition_service.py` |
+| `insightface not installed` | Run `pip install insightface onnxruntime-gpu` |
+| CUDA not detected | Install the correct PyTorch CUDA wheels (see Step 1) |
+| Faces not recognised | Delete `registered_personnel/embeddings_cache.pkl` to force a full rebuild |
+| Camera not connecting | Check IP, port, username, and password in `.env`; verify RTSP is enabled on camera |

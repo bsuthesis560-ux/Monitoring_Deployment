@@ -4,8 +4,8 @@ BSU Personnel Monitoring - Facial Recognition Service (Multi-Camera Edition)
 Optimised for: NVIDIA RTX 2050 (4 GB) · AMD Ryzen 5 6600H · 8 GB RAM
 
 Setup:
-  pip install opencv-python ultralytics facenet-pytorch deep-sort-realtime \
-              requests numpy scipy python-dotenv
+  pip install opencv-python ultralytics insightface onnxruntime-gpu \
+              deep-sort-realtime requests numpy scipy python-dotenv
 
   # CUDA 12.4 wheels (Python 3.10 / 3.13 compatible):
   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
@@ -84,7 +84,7 @@ WALK-THROUGH + VARYING LIGHT OPTIMISATIONS
   · Pinned-memory CPU→GPU transfer
 
 [SHARED MODEL ARCHITECTURE]
-  · Single YOLO + FaceNet via GPUInferenceEngine (saves ~180 MB VRAM)
+  · Single YOLO + ArcFace via GPUInferenceEngine (saves ~180 MB VRAM)
   · Cross-camera batched FaceNet inference
 =============================================================================
 """
@@ -126,9 +126,14 @@ except ImportError:
 
 try:
     import torch
-    from facenet_pytorch import InceptionResnetV1
 except ImportError:
-    print("ERROR: facenet-pytorch not installed.  Run: pip install facenet-pytorch torch torchvision")
+    print("ERROR: torch not installed.  Run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124")
+    sys.exit(1)
+
+try:
+    from insightface.app import FaceAnalysis as _InsightFaceAnalysis
+except ImportError:
+    print("ERROR: insightface not installed.  Run: pip install insightface onnxruntime-gpu")
     sys.exit(1)
 
 def _probe_cuda() -> bool:
@@ -239,10 +244,10 @@ VIEW_THRESHOLD_OFFSETS: dict = {
     "top":   0.03,
 }
 
-YOLO_FACE_MODEL = os.environ.get("YOLO_FACE_MODEL", "yolov8n-face.pt")
+YOLO_FACE_MODEL = os.environ.get("YOLO_FACE_MODEL", "yolo11n-face.pt")
 
 ANN_MIN_EMBEDDINGS       = 200
-CACHE_VERSION            = 2      # bumped: DB now stores 4 augmented embeddings per photo
+CACHE_VERSION            = 3      # bumped: switched from FaceNet to ArcFace embedding space
 
 IDENTITY_CACHE_SECS      = 30.0   # re-entry cache lasts 30 s for doorway scenarios (was 15)
 IDENTITY_CACHE_THRESHOLD = 0.48   # looser re-ID threshold (was 0.42)
@@ -265,71 +270,6 @@ _clahe_face  = cv2.createCLAHE(clipLimit=6.0, tileGridSize=(4, 4))   # was 4.0
 
 _gamma_lut_cache: dict = {}
 _log_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="log")
-
-# ── Web-streaming mode (activated by --web-mode CLI flag) ─────────────────────
-_web_mode: bool      = "--web-mode" in sys.argv
-_WEB_FRAMES: dict    = {}          # cam_name → latest JPEG bytes
-_WEB_EVENTS: dict    = {}          # cam_name → threading.Event (notify new frame)
-_WEB_LOCK            = threading.Lock()
-
-
-def _update_web_frame(cam_name: str, frame) -> None:
-    """JPEG-encode a rendered frame and notify the MJPEG server thread."""
-    ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
-    if not ok:
-        return
-    data = buf.tobytes()
-    with _WEB_LOCK:
-        _WEB_FRAMES[cam_name] = data
-    ev = _WEB_EVENTS.get(cam_name)
-    if ev:
-        ev.set()
-
-
-def _start_mjpeg_server(port: int = 5001) -> None:
-    """Start a lightweight Flask MJPEG stream server in a background thread."""
-    try:
-        from flask import Flask as _Flask, Response as _Response, jsonify as _jsonify
-    except ImportError:
-        print("[Web] Flask not installed – web streaming disabled. Run: pip install flask")
-        return
-
-    srv = _Flask("mjpeg_server")
-    # Silence Flask startup noise
-    import logging as _logging
-    _logging.getLogger("werkzeug").setLevel(_logging.WARNING)
-
-    @srv.route("/stream/<path:cam_name>")
-    def _stream(cam_name):
-        if cam_name not in _WEB_EVENTS:
-            _WEB_EVENTS[cam_name] = threading.Event()
-
-        def _gen():
-            while True:
-                ev = _WEB_EVENTS.get(cam_name)
-                if ev:
-                    ev.wait(timeout=2.0)
-                    ev.clear()
-                with _WEB_LOCK:
-                    frame = _WEB_FRAMES.get(cam_name)
-                if frame:
-                    yield (b"--frame\r\n"
-                           b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n")
-
-        return _Response(_gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
-
-    @srv.route("/cameras")
-    def _cameras():
-        with _WEB_LOCK:
-            return _jsonify(list(_WEB_FRAMES.keys()))
-
-    threading.Thread(
-        target=lambda: srv.run(host="127.0.0.1", port=port, debug=False, threaded=True),
-        name="mjpeg-server",
-        daemon=True,
-    ).start()
-    print(f"[Web] MJPEG stream server started → http://127.0.0.1:{port}")
-
 
 os.environ.setdefault(
     "OPENCV_FFMPEG_CAPTURE_OPTIONS",
@@ -455,12 +395,9 @@ def preprocess_frame(frame: np.ndarray) -> np.ndarray:
             )
             bgr   *= scales
             frame  = np.clip(bgr, 0, 255).astype(np.uint8)
-            del bgr
     lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    del lab
     l_eq   = _clahe_frame.apply(l)
-    del l
     mean_l = float(np.mean(l_eq))
     gamma  = max(0.5, mean_l / 128.0) if mean_l < 100 else (min(1.8, mean_l / 128.0) if mean_l > 180 else 1.0)
     l_eq   = _apply_gamma_lut(l_eq, gamma)
@@ -500,176 +437,96 @@ def _darken(img: np.ndarray, factor: float = 0.65) -> np.ndarray:
 #  Model builders
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_YOLO_FACE_DOWNLOAD_URL = (
-    "https://huggingface.co/arnabdhar/YOLOv8-Face-Detection"
-    "/resolve/main/model.pt"
-)
-
-
 def build_yolo_face_detector() -> YOLO:
+    """
+    Load the YOLO11 face-detection model.
+    Resolution order:
+      1. Path set in YOLO_FACE_MODEL env var
+      2. yolo11n-face.pt in the same directory as this script
+    Place yolo11n-face.pt next to this file before running.
+    """
     model_path = YOLO_FACE_MODEL
     if not os.path.isfile(model_path):
-        local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yolov8n-face.pt")
+        local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yolo11n-face.pt")
         if not os.path.isfile(local_path):
-            print("  yolov8n-face.pt not found – downloading from HuggingFace…")
-            resp = requests.get(_YOLO_FACE_DOWNLOAD_URL, stream=True, timeout=120)
-            resp.raise_for_status()
-            with open(local_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=65536):
-                    f.write(chunk)
-            print(f"  Saved to {local_path}")
+            print("ERROR: yolo11n-face.pt not found.")
+            print(f"       Expected at: {local_path}")
+            print("       Copy yolo11n-face.pt into the same folder as this script.")
+            sys.exit(1)
         model_path = local_path
+    print(f"  YOLO11 face model: {model_path}")
     return YOLO(model_path)
 
 
-# ── Pinned-memory staging buffer ─────────────────────────────────────────────
-_pinned_buf: Optional[torch.Tensor] = None
+# ── ArcFace (InsightFace buffalo_l) preprocessing & inference ─────────────────
 
-
-def _ensure_pinned_buf(n: int) -> torch.Tensor:
-    global _pinned_buf
-    if _pinned_buf is None or _pinned_buf.shape[0] < n:
-        _pinned_buf = torch.empty(
-            max(n, 20), 3, 160, 160, dtype=torch.float32, pin_memory=True
-        )
-    return _pinned_buf
-
-
-def _preprocess_for_facenet(crop_bgr: np.ndarray) -> torch.Tensor:
-    """BGR crop → normalised CHW float32 tensor [-1, 1]."""
-    rgb     = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
-    resized = cv2.resize(rgb, (160, 160), interpolation=cv2.INTER_LINEAR)
-    arr     = resized.astype(np.float32) * (1.0 / 127.5) - 1.0
-    return torch.from_numpy(np.ascontiguousarray(arr.transpose(2, 0, 1)))
-
-
-def _build_face_embedder_on(device: str):
-    """
-    Internal helper: build and warm up FaceNet on the given device.
-    Raises if CUDA fails so the caller can retry on CPU.
-    """
-    use_fp16 = device == "cuda"
-    model    = InceptionResnetV1(pretrained="vggface2").eval().to(device)
-
-    if use_fp16:
-        model = model.half()
-        try:
-            model = model.to(memory_format=torch.channels_last)
-        except Exception:
-            pass
-        print(f"  FaceNet: fp16 + channels_last on {torch.cuda.get_device_name(0)}.")
-
-    model._use_fp16 = use_fp16
-
-    _cxx_ok = False
-    if hasattr(torch, "compile"):
-        try:
-            from torch._inductor.codecache import cpp_compiler as _cpp_compiler
-            _cpp_compiler()
-            _cxx_ok = True
-        except Exception:
-            print("  FaceNet: torch.compile skipped – no C++ compiler found.")
-            print("           Install Visual Studio Build Tools to enable it.")
-
-    warmup_done = False
-    if _cxx_ok:
-        try:
-            fp16_flag = use_fp16
-            compiled  = torch.compile(model, mode="reduce-overhead", dynamic=False)
-            compiled._use_fp16 = fp16_flag
-            with torch.inference_mode():
-                for bs in (1, 4, 8, 14):
-                    dummy = torch.zeros(bs, 3, 160, 160, device=device)
-                    if use_fp16:
-                        dummy = dummy.half()
-                    _ = compiled(dummy)
-            model       = compiled
-            warmup_done = True
-            print("  FaceNet: torch.compile(reduce-overhead) active. Warmup: bs=1,4,8,14.")
-        except Exception as exc:
-            print(f"  FaceNet: torch.compile failed ({type(exc).__name__}) – eager mode.")
-
-    if not warmup_done:
-        with torch.inference_mode():
-            dummy = torch.zeros(1, 3, 160, 160, device=device)
-            if use_fp16:
-                dummy = dummy.half()
-            _ = model(dummy)
-        print(f"  FaceNet: eager mode warmup complete on {device}.")
-
-    return model, device
+def _preprocess_for_arcface(crop_bgr: np.ndarray) -> np.ndarray:
+    """BGR crop → 112×112 BGR uint8. InsightFace normalises internally."""
+    return cv2.resize(crop_bgr, (112, 112), interpolation=cv2.INTER_LINEAR)
 
 
 def build_face_embedder():
     """
-    FaceNet with RTX 2050 optimisations:
-    fp16 + channels_last + torch.compile(reduce-overhead).
-    Warmup at bs=1,4,8,14 so compiled kernels are ready before first frame.
-
-    If CUDA is selected but fails at any point (model load, warmup, etc.)
-    the function automatically retries on CPU so the service never crashes
-    due to a transient GPU driver error.
+    ArcFace ResNet-50 via InsightFace buffalo_l + ONNX Runtime.
+    GPU: CUDAExecutionProvider — ONNX RT manages device memory directly.
+    CPU fallback is automatic via the provider priority list.
+    Returns (rec_model, device_str) for API compatibility with callers.
     """
-    primary = "cuda" if _USE_GPU else "cpu"
-    try:
-        return _build_face_embedder_on(primary)
-    except Exception as exc:
-        if primary == "cpu":
-            raise   # already on CPU, nothing to fall back to
-        print(f"[WARNING] FaceNet failed on CUDA ({type(exc).__name__}: {exc}).")
-        print("          Retrying on CPU – recognition will be slower.")
-        try:
-            torch.cuda.empty_cache()
-        except Exception:
-            pass
-        return _build_face_embedder_on("cpu")
+    providers = (
+        ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        if _USE_GPU else ['CPUExecutionProvider']
+    )
+    app = _InsightFaceAnalysis(
+        name='buffalo_l',
+        allowed_modules=['recognition'],
+        providers=providers,
+    )
+    app.prepare(ctx_id=0 if _USE_GPU else -1, det_size=(112, 112))
+
+    rec = None
+    for model in app.models.values():
+        if hasattr(model, 'get_feat'):
+            rec = model
+            break
+    if rec is None:
+        raise RuntimeError(
+            "ArcFace recognition model not found in InsightFace buffalo_l pack."
+        )
+
+    backend = "GPU (ONNX CUDAExecutionProvider)" if _USE_GPU else "CPU (ONNX)"
+    print(f"  ArcFace: {backend}, 512-dim embeddings, input 112×112.")
+    device = "cuda" if _USE_GPU else "cpu"
+    return rec, device
 
 
 def extract_face_embedding(crop_bgr: np.ndarray, embedder, device: str) -> np.ndarray:
-    """Single-crop L2-normalised 512-dim embedding."""
-    use_fp16 = getattr(embedder, "_use_fp16", False)
-    tensor   = _preprocess_for_facenet(crop_bgr).unsqueeze(0).to(device)
-    if use_fp16:
-        tensor = tensor.half()
-    with torch.inference_mode():
-        emb = embedder(tensor).squeeze().float().cpu().numpy()
+    """Single-crop L2-normalised 512-dim ArcFace embedding."""
+    face = _preprocess_for_arcface(crop_bgr)
+    emb  = embedder.get_feat([face]).flatten()
     return emb / (np.linalg.norm(emb) + 1e-6)
 
 
 def extract_face_embeddings_batch(crops_bgr: list, embedder, device: str) -> list:
     """
-    Batch FaceNet inference with pinned-memory CPU→GPU transfer.
-    All crops go through one forward pass – maximises GPU utilisation.
+    Batch ArcFace inference via InsightFace ONNX Runtime.
+    All valid crops go through one forward pass.
     """
-    use_fp16 = getattr(embedder, "_use_fp16", False)
-    tensors: list = []
-    valid:   list = []
-    results       = [None] * len(crops_bgr)
+    valid_faces:   list = []
+    valid_indices: list = []
+    results              = [None] * len(crops_bgr)
 
     for i, crop in enumerate(crops_bgr):
         if crop is None or crop.size == 0:
             continue
         try:
-            tensors.append(_preprocess_for_facenet(crop))
-            valid.append(i)
+            valid_faces.append(_preprocess_for_arcface(crop))
+            valid_indices.append(i)
         except Exception:
             pass
 
-    if tensors:
-        n = len(tensors)
-        if _USE_GPU:
-            buf = _ensure_pinned_buf(n)
-            for k, t in enumerate(tensors):
-                buf[k].copy_(t)
-            batch = buf[:n].to(device, non_blocking=True)
-        else:
-            batch = torch.stack(tensors).to(device)
-
-        if use_fp16:
-            batch = batch.half()
-        with torch.inference_mode():
-            embs = embedder(batch).float().cpu().numpy()
-        for out_i, emb in zip(valid, embs):
+    if valid_faces:
+        embs = embedder.get_feat(valid_faces)  # [N, 512] float32
+        for out_i, emb in zip(valid_indices, embs):
             results[out_i] = emb / (np.linalg.norm(emb) + 1e-6)
 
     return results
@@ -1146,7 +1003,7 @@ class DeepSORTFaceTracker:
 
 class GPUInferenceEngine:
     """
-    Owns ONE YOLO + ONE FaceNet, shared by all cameras.
+    Owns ONE YOLO + ONE ArcFace embedder, shared by all cameras.
 
     Walk-through specific behaviour:
       · Three-tier YOLO confidence (normal / motion / high-motion)
@@ -1160,9 +1017,9 @@ class GPUInferenceEngine:
     """
 
     def __init__(self):
-        print("GPUInferenceEngine: loading shared YOLOv8 model…")
+        print("GPUInferenceEngine: loading shared YOLO11 face model…")
         self._yolo = build_yolo_face_detector()
-        print("GPUInferenceEngine: loading shared FaceNet model…")
+        print("GPUInferenceEngine: loading shared ArcFace model…")
         self._embedder, self._device = build_face_embedder()
 
         self._frame_queues:  dict = {}
@@ -1651,10 +1508,6 @@ class CameraWorker:
             if self.stream.connected and now - last_submit_time > effective_delay:
                 frame = self.stream.get_frame()
                 if frame is not None and frame.size > 0:
-                    h, w = frame.shape[:2]
-                    if w > 1280:
-                        frame = cv2.resize(frame, (1280, int(h * 1280 / w)),
-                                           interpolation=cv2.INTER_LINEAR)
                     curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     if prev_gray is not None and prev_gray.shape == curr_gray.shape:
                         self.motion_score = estimate_motion(prev_gray, curr_gray)
@@ -1681,10 +1534,7 @@ def render_camera_window(worker: CameraWorker, fps: int):
         placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
         cv2.putText(placeholder, f"{worker.name}: Connecting…",
                     (40, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2)
-        if _web_mode:
-            _update_web_frame(window_name, placeholder)
-        else:
-            cv2.imshow(window_name, placeholder)
+        cv2.imshow(window_name, placeholder)
         return
 
     display = frame
@@ -1725,10 +1575,7 @@ def render_camera_window(worker: CameraWorker, fps: int):
     cv2.putText(display, status_text, (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
 
-    if _web_mode:
-        _update_web_frame(window_name, display)
-    else:
-        cv2.imshow(window_name, display)
+    cv2.imshow(window_name, display)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1739,16 +1586,14 @@ if __name__ == "__main__":
     if not API_KEY:
         print("ERROR: API_KEY environment variable is not set.")
         print("  Add it to your .env file:  API_KEY=your-key-here")
-        sys.exit(1)
-
-    if _web_mode:
-        _start_mjpeg_server(port=5001)
+        input("\nPress Enter to close…")
+        exit(1)
 
     cameras = load_cameras_from_env()
 
     print("\n" + "=" * 68)
     print("  BSU Personnel Monitoring – Facial Recognition Service")
-    print("  Multi-Camera  |  YOLOv8 + DeepSORT  |  Walk-Through Edition")
+    print("  Multi-Camera  |  YOLO11 + ArcFace + DeepSORT  |  Walk-Through Edition")
     print("=" * 68)
     print(f"  API URL            : {API_URL}")
     print(f"  Cosine threshold   : {COSINE_THRESHOLD}")
@@ -1780,10 +1625,9 @@ if __name__ == "__main__":
 
     system_running = [True]
 
-    if not _web_mode:
-        for cam in cameras:
-            cv2.namedWindow(cam.name, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(cam.name, 960, 540)
+    for cam in cameras:
+        cv2.namedWindow(cam.name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(cam.name, 960, 540)
 
     print("\nStarting camera workers…")
     workers: list = []
@@ -1791,57 +1635,37 @@ if __name__ == "__main__":
         workers.append(CameraWorker(cam_cfg, system_running, shared_db, engine).start())
 
     time.sleep(3)
+    print("System running. Press 'q' in any camera window to quit.\n")
 
     frame_count = 0
     fps_time    = time.time()
     fps         = 0
 
-    if _web_mode:
-        print("System running in web mode.  Streams → http://127.0.0.1:5001")
-        print("Press Ctrl+C to quit.\n")
-        try:
-            while True:
-                frame_count += 1
-                if time.time() - fps_time >= 1.0:
-                    fps         = frame_count
-                    frame_count = 0
-                    fps_time    = time.time()
+    try:
+        while True:
+            frame_count += 1
+            if time.time() - fps_time >= 1.0:
+                fps         = frame_count
+                frame_count = 0
+                fps_time    = time.time()
 
-                for worker in workers:
-                    try:
-                        render_camera_window(worker, fps)
-                    except Exception as exc:
-                        print(f"[{worker.name}] Render error: {exc}")
+            for worker in workers:
+                try:
+                    render_camera_window(worker, fps)
+                except Exception as exc:
+                    print(f"[{worker.name}] Render error: {exc}")
 
-                time.sleep(0.033)   # ~30 fps cap for web streaming
-        except KeyboardInterrupt:
-            print("\nCtrl+C received.")
-    else:
-        print("System running. Press 'q' in any camera window to quit.\n")
-        try:
-            while True:
-                frame_count += 1
-                if time.time() - fps_time >= 1.0:
-                    fps         = frame_count
-                    frame_count = 0
-                    fps_time    = time.time()
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
-                for worker in workers:
-                    try:
-                        render_camera_window(worker, fps)
-                    except Exception as exc:
-                        print(f"[{worker.name}] Render error: {exc}")
+    except KeyboardInterrupt:
+        print("\nCtrl+C received.")
 
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-        except KeyboardInterrupt:
-            print("\nCtrl+C received.")
-
-    system_running[0] = False
-    engine.stop()
-    print("Shutting down…")
-    for worker in workers:
-        worker.stop()
-    if not _web_mode:
+    finally:
+        system_running[0] = False
+        engine.stop()
+        print("Shutting down…")
+        for worker in workers:
+            worker.stop()
         cv2.destroyAllWindows()
-    print("System closed.")
+        print("System closed.")
