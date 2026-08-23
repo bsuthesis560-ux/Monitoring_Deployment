@@ -20,7 +20,7 @@ import {
   useDepartment,
 } from "@/contexts/department-context";
 
-interface AttendanceLog {
+interface MonitoringLog {
   id: number;
   employeeId: string;
   name: string;
@@ -41,7 +41,7 @@ export default function OfficePage() {
   const office = params?.slug ? getOfficeBySlug(params.slug) : undefined;
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [logs, setLogs] = useState<AttendanceLog[]>([]);
+  const [logs, setLogs] = useState<MonitoringLog[]>([]);
   const [stats, setStats] = useState<DeptStat[]>([]);
   const [logsError, setLogsError] = useState(false);
   const [activeUnit, setActiveUnit] = useState<string | null>(null);
@@ -148,7 +148,7 @@ export default function OfficePage() {
           </div>
         </div>
 
-        {/* Body: Sub-units sidebar + Attendance log */}
+        {/* Body: Sub-units sidebar + Monitoring log */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-0">
 
           {/* Sub-units list */}
@@ -228,12 +228,12 @@ export default function OfficePage() {
             </div>
           </aside>
 
-          {/* Attendance Log */}
+          {/* Monitoring Log */}
           <section className="lg:col-span-8 xl:col-span-9 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col min-h-0 overflow-hidden">
             <div className="p-4 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
               <Clock className="w-4 h-4 text-primary" />
               <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">
-                Attendance Log
+                Monitoring Log
                 {activeUnit && (
                   <span className="ml-2 normal-case font-medium text-gray-500">
                     · filtered to <span className="text-primary font-semibold">{activeUnit}</span>
@@ -249,16 +249,16 @@ export default function OfficePage() {
               {logsError ? (
                 <div className="h-full flex flex-col items-center justify-center p-8 text-gray-400 gap-3">
                   <WifiOff className="w-10 h-10" />
-                  <p className="font-medium">Could not load attendance logs.</p>
+                  <p className="font-medium">Could not load monitoring logs.</p>
                 </div>
               ) : finalLogs.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-8 text-gray-400 gap-3">
                   <Camera className="w-10 h-10" />
                   <p className="font-medium text-gray-600">
-                    No attendance logs yet for {activeUnit ?? office.code}.
+                    No monitoring logs yet for {activeUnit ?? office.code}.
                   </p>
                   <p className="text-sm text-center max-w-sm">
-                    Start the facial recognition service on your local machine to begin logging attendance.
+                    Start the facial recognition service on your local machine to begin logging monitoring events.
                   </p>
                 </div>
               ) : (

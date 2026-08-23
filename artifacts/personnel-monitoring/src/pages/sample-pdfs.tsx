@@ -152,9 +152,9 @@ export default function SamplePDFs() {
               <FileText className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Sample Attendance PDFs</h2>
+              <h2 className="text-2xl font-bold text-gray-900">Sample Monitoring PDFs</h2>
               <p className="text-sm text-gray-500 mt-0.5">
-                Ready-to-print attendance summary samples — Daily, Weekly, and Monthly formats
+                Ready-to-print monitoring summary samples — Daily, Weekly, and Monthly formats
               </p>
             </div>
           </div>

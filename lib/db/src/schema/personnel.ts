@@ -54,7 +54,7 @@ export const sessionsTable = pgTable("sessions", {
 
 export type Session = typeof sessionsTable.$inferSelect;
 
-export const attendanceLogsTable = pgTable("attendance_logs", {
+export const monitoringLogsTable = pgTable("attendance_logs", {
   id: serial("id").primaryKey(),
   personnelId: integer("personnel_id").references(() => personnelTable.id, { onDelete: "set null" }),
   employeeId: text("employee_id").notNull(),
@@ -65,7 +65,7 @@ export const attendanceLogsTable = pgTable("attendance_logs", {
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 
-export type AttendanceLog = typeof attendanceLogsTable.$inferSelect;
+export type MonitoringLog = typeof monitoringLogsTable.$inferSelect;
 
 // D4 — Audit trail for every admin action
 export const auditLogsTable = pgTable("audit_logs", {

@@ -1,16 +1,16 @@
 /**
  * D5 — Personnel backup (triggered on every create/update/delete)
- * D6 — Attendance log backup (nightly cron at midnight)
+ * D6 — Monitoring log backup (nightly cron at midnight)
  */
 import { db } from "@workspace/db";
-import { personnelTable, attendanceLogsTable } from "@workspace/db";
+import { personnelTable, monitoringLogsTable } from "@workspace/db";
 import fs from "fs";
 import path from "path";
 import cron from "node-cron";
 
 // Resolve from process.cwd() so paths work regardless of __dirname in bundled output
 const PERSONNEL_BACKUP_DIR  = path.resolve(process.cwd(), "personnel_backup");
-const ATTENDANCE_BACKUP_DIR = path.resolve(process.cwd(), "attendance_backup");
+const MONITORING_BACKUP_DIR = path.resolve(process.cwd(), "monitoring_backup");
 
 // ── D5: Personnel backup ──────────────────────────────────────────────────────
 
@@ -53,11 +53,11 @@ export async function writePersonnelBackup(): Promise<void> {
   }
 }
 
-// ── D6: Attendance log backup ─────────────────────────────────────────────────
+// ── D6: Monitoring log backup ──────────────────────────────────────────────────
 
-export async function writeAttendanceBackup(): Promise<void> {
+export async function writeMonitoringBackup(): Promise<void> {
   try {
-    const logs = await db.select().from(attendanceLogsTable).orderBy(attendanceLogsTable.timestamp);
+    const logs = await db.select().from(monitoringLogsTable).orderBy(monitoringLogsTable.timestamp);
 
     const header = [
       "ID", "Employee ID", "Name", "Department", "Position", "Log Type", "Timestamp",
@@ -76,20 +76,20 @@ export async function writeAttendanceBackup(): Promise<void> {
     );
 
     const csv = [
-      `# BatStateU Personnel Monitoring — Attendance Log Backup`,
+      `# BatStateU Personnel Monitoring — Monitoring Log Backup`,
       `# Generated: ${new Date().toISOString()}`,
       `# Total records: ${logs.length}`,
       header,
       ...lines,
     ].join("\n");
 
-    if (!fs.existsSync(ATTENDANCE_BACKUP_DIR)) {
-      fs.mkdirSync(ATTENDANCE_BACKUP_DIR, { recursive: true });
+    if (!fs.existsSync(MONITORING_BACKUP_DIR)) {
+      fs.mkdirSync(MONITORING_BACKUP_DIR, { recursive: true });
     }
-    const filename = `attendance_${new Date().toISOString().split("T")[0]}.csv`;
-    fs.writeFileSync(path.join(ATTENDANCE_BACKUP_DIR, filename), csv, "utf-8");
+    const filename = `monitoring_${new Date().toISOString().split("T")[0]}.csv`;
+    fs.writeFileSync(path.join(MONITORING_BACKUP_DIR, filename), csv, "utf-8");
   } catch (err) {
-    console.error("[AttendanceBackup] Failed:", err);
+    console.error("[MonitoringBackup] Failed:", err);
   }
 }
 
@@ -97,7 +97,7 @@ export async function writeAttendanceBackup(): Promise<void> {
 
 export function startBackupScheduler(): void {
   cron.schedule("0 0 * * *", () => {
-    void writeAttendanceBackup();
+    void writeMonitoringBackup();
     void writePersonnelBackup();
   });
 }

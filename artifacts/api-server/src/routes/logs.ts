@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { attendanceLogsTable, accountsTable, personnelTable, sessionsTable, personnelPhotosTable } from "@workspace/db";
+import { monitoringLogsTable, accountsTable, personnelTable, sessionsTable, personnelPhotosTable } from "@workspace/db";
 import { isValidPhoto } from "../lib/validate-photo";
 import { eq, desc, and, gte } from "drizzle-orm";
 
@@ -56,14 +56,14 @@ router.get("/", async (req, res) => {
   const logs = department
     ? await db
         .select()
-        .from(attendanceLogsTable)
-        .where(eq(attendanceLogsTable.department, department))
-        .orderBy(desc(attendanceLogsTable.timestamp))
+        .from(monitoringLogsTable)
+        .where(eq(monitoringLogsTable.department, department))
+        .orderBy(desc(monitoringLogsTable.timestamp))
         .limit(limit)
     : await db
         .select()
-        .from(attendanceLogsTable)
-        .orderBy(desc(attendanceLogsTable.timestamp))
+        .from(monitoringLogsTable)
+        .orderBy(desc(monitoringLogsTable.timestamp))
         .limit(limit);
 
   res.json(
@@ -111,11 +111,11 @@ router.post("/", async (req, res) => {
 
   const recentLog = await db
     .select()
-    .from(attendanceLogsTable)
+    .from(monitoringLogsTable)
     .where(
       and(
-        eq(attendanceLogsTable.employeeId, employeeId),
-        gte(attendanceLogsTable.timestamp, cooldownTime)
+        eq(monitoringLogsTable.employeeId, employeeId),
+        gte(monitoringLogsTable.timestamp, cooldownTime)
       )
     )
     .limit(1);
@@ -130,14 +130,14 @@ router.post("/", async (req, res) => {
 
   const [lastLogToday] = await db
     .select()
-    .from(attendanceLogsTable)
+    .from(monitoringLogsTable)
     .where(
       and(
-        eq(attendanceLogsTable.employeeId, employeeId),
-        gte(attendanceLogsTable.timestamp, todayStart)
+        eq(monitoringLogsTable.employeeId, employeeId),
+        gte(monitoringLogsTable.timestamp, todayStart)
       )
     )
-    .orderBy(desc(attendanceLogsTable.timestamp))
+    .orderBy(desc(monitoringLogsTable.timestamp))
     .limit(1);
 
   let nextLogType: string;
@@ -150,7 +150,7 @@ router.post("/", async (req, res) => {
   }
 
   const [log] = await db
-    .insert(attendanceLogsTable)
+    .insert(monitoringLogsTable)
     .values({
       personnelId: personnel.id,
       employeeId: personnel.employeeId,
