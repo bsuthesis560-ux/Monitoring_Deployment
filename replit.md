@@ -54,14 +54,15 @@ artifacts-monorepo/
 - **Frontend** runs on port 5000 (Vite dev server, `webview` workflow)
 - **Backend** runs on port 8080 (Express, `console` workflow)
 - Vite proxies `/api/*` requests to `http://localhost:8080`
-- Database: Replit PostgreSQL (provisioned, `DATABASE_URL` auto-set)
+- Database: Neon PostgreSQL (`NEON_DATABASE_URL` preferred, with `DATABASE_URL` fallback)
 - Schema pushed via `pnpm --filter @workspace/db run push`
 - `SESSION_SECRET` stored in Replit secrets
 
 ## Environment Variables
 
 - `SESSION_SECRET` — Secret for signed session cookies (stored in Replit secrets)
-- `DATABASE_URL` — Replit PostgreSQL connection string (auto-provisioned)
+- `NEON_DATABASE_URL` — Neon PostgreSQL connection string used by the app
+- `DATABASE_URL` — fallback PostgreSQL connection string
 - `FACIAL_RECOGNITION_API_KEY` — API key used by the local Python facial recognition service to authenticate log submissions
 
 ## System Flow
