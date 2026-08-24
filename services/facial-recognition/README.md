@@ -1,7 +1,7 @@
 # Facial Recognition Service — Local Setup (Multi-Camera Edition)
 
 This service runs **on your local machine** (the one connected to the IP cameras).
-It detects faces from one or more RTSP streams and logs monitoring events to the web app.
+It detects faces from one or more RTSP streams and logs attendance to the web app.
 
 This version uses **YOLO11 + ArcFace (InsightFace buffalo_l) + DeepSORT** for fast,
 lighting-robust recognition with walk-through optimisation.
@@ -128,7 +128,7 @@ The service communicates with the web app through two endpoints:
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/logs/personnel-photos` | GET | Download registered personnel photos |
-| `/api/logs` | POST | Submit a monitoring log entry |
+| `/api/logs` | POST | Submit an attendance log entry |
 
 Both require the `x-api-key` header set to your `API_KEY` value.
 

@@ -1421,7 +1421,7 @@ class CameraWorker:
       2. Compute motion score (cheap CPU op at 25% scale)
       3. preprocess_frame() on CPU – parallel across camera threads
       4. Submit (proc_frame, orig_frame, motion_score) to engine
-      5. Poll engine result queue → DeepSORT update → monitoring log
+      5. Poll engine result queue → DeepSORT update → attendance log
     """
 
     def __init__(

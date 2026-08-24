@@ -42,7 +42,7 @@ artifacts-monorepo/
 - **personnel** — Personnel records (name, employee_id, department, position, photo, vehicle plate)
 - **accounts** — User accounts (username=employee_id, hashed password, role: admin|user, links to personnel)
 - **sessions** — Session tokens for cookie-based auth
-- **attendance_logs** — Real-time facial recognition monitoring logs (employee_id, name, department, log_type, timestamp)
+- **attendance_logs** — Real-time facial recognition logs (employee_id, name, department, log_type, timestamp)
 
 ## Default Admin Account
 
@@ -70,7 +70,7 @@ artifacts-monorepo/
 - Dashboard has: department boxes, sidebar with Staff Monitoring + Register Personnel + Manage Accounts
 - Register Personnel (`/register`) — creates personnel + optionally creates account at the same time
 - Manage Accounts (`/accounts`) — add account for existing personnel, update password, delete account
-- Staff Monitoring (`/staff-monitoring`) — live monitoring log table (polls every 5s) + personnel roster tab; department-filtered for user role
+- Staff Monitoring (`/staff-monitoring`) — live attendance log table (polls every 5s) + personnel roster tab; department-filtered for user role
 
 ## Facial Recognition Service (Local)
 
@@ -92,6 +92,6 @@ artifacts-monorepo/
 - `GET /api/accounts` — List all accounts
 - `POST /api/accounts` — Create account for existing personnel
 - `PUT/DELETE /api/accounts/:id`
-- `GET /api/logs` — Get monitoring logs (dept-filtered for user role; requires session cookie)
+- `GET /api/logs` — Get attendance logs (dept-filtered for user role; requires session cookie)
 - `POST /api/logs` — Submit a recognition log (requires `x-api-key` header)
 - `GET /api/logs/personnel-photos` — Download all registered personnel photos as base64 (requires `x-api-key`)

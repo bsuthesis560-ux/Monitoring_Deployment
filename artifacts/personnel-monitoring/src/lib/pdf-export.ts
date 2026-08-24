@@ -9,7 +9,7 @@ import {
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 
-export interface MonitoringLog {
+export interface AttendanceLog {
   id:           number;
   employeeId:   string;
   name:         string;
@@ -110,10 +110,10 @@ export function periodLabel(
 }
 
 export function periodSummaryTitle(period: SummaryPeriod): string {
-  if (period === "daily")   return "Daily Monitoring Summary";
-  if (period === "weekly")  return "Weekly Monitoring Summary";
-  if (period === "monthly") return "Monthly Monitoring Summary";
-  return "Custom Monitoring Summary";
+  if (period === "daily")   return "Daily Attendance Summary";
+  if (period === "weekly")  return "Weekly Attendance Summary";
+  if (period === "monthly") return "Monthly Attendance Summary";
+  return "Custom Attendance Summary";
 }
 
 function filenamePeriod(period: SummaryPeriod, dateStr: string, customStart?: string): string {
@@ -246,7 +246,7 @@ function renderFooterOnPage(doc: jsPDF, pageNum: number) {
 // ── Data builders ─────────────────────────────────────────────────────────────
 
 /** Daily: group logs by employee, pick first two TIME_IN and TIME_OUT events. */
-function buildDailyRows(logs: MonitoringLog[]): EmployeeTimeRow[] {
+function buildDailyRows(logs: AttendanceLog[]): EmployeeTimeRow[] {
   const sorted = [...logs].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
@@ -274,7 +274,7 @@ function buildDailyRows(logs: MonitoringLog[]): EmployeeTimeRow[] {
 }
 
 /** Weekly: group logs by employee and by calendar day. Generates Mon–Sat grid. */
-function buildWeeklyData(logs: MonitoringLog[], dateStr: string): WeeklyEmployeeRecord[] {
+function buildWeeklyData(logs: AttendanceLog[], dateStr: string): WeeklyEmployeeRecord[] {
   const d        = new Date(dateStr + "T00:00:00");
   const weekStart = startOfWeek(d, { weekStartsOn: 1 }); // Monday
 
@@ -317,7 +317,7 @@ function buildWeeklyData(logs: MonitoringLog[], dateStr: string): WeeklyEmployee
 }
 
 /** Monthly: group logs by employee and by calendar week (up to 5 weeks). */
-function buildMonthlyData(logs: MonitoringLog[], dateStr: string): MonthlyEmployeeRecord[] {
+function buildMonthlyData(logs: AttendanceLog[], dateStr: string): MonthlyEmployeeRecord[] {
   const d          = new Date(dateStr + "T00:00:00");
   const mStart     = startOfMonth(d);
   const mEnd       = endOfMonth(d);
@@ -611,7 +611,7 @@ function applyFooters(doc: jsPDF) {
 async function renderDeptSection(
   doc: jsPDF,
   dept: string,
-  logs: MonitoringLog[],
+  logs: AttendanceLog[],
   period: SummaryPeriod,
   titleLabel: string,
   periodStr: string,
@@ -640,7 +640,7 @@ async function renderDeptSection(
 
 export async function exportDeptPDF(
   dept: string,
-  deptLogs: MonitoringLog[],
+  deptLogs: AttendanceLog[],
   period: SummaryPeriod,
   dateStr: string,
   customStart?: string,
@@ -662,7 +662,7 @@ export async function exportDeptPDF(
 // ── Public: export all departments in one PDF ─────────────────────────────────
 
 export async function exportAllDeptsPDF(
-  deptGroups: Record<string, MonitoringLog[]>,
+  deptGroups: Record<string, AttendanceLog[]>,
   period: SummaryPeriod,
   dateStr: string,
   customStart?: string,
@@ -714,7 +714,7 @@ export async function exportSampleWeeklyPDF(
   filename: string,
 ): Promise<void> {
   const logo   = await loadLogo();
-  const label  = "Weekly Monitoring Summary";
+  const label  = "Weekly Attendance Summary";
   const doc    = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const now    = new Date();
   const startY = renderPageHeader(doc, logo, label, periodStr, dept, employees.length, now);
@@ -731,7 +731,7 @@ export async function exportSampleMonthlyPDF(
   filename: string,
 ): Promise<void> {
   const logo   = await loadLogo();
-  const label  = "Monthly Monitoring Summary";
+  const label  = "Monthly Attendance Summary";
   const doc    = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const now    = new Date();
   const startY = renderPageHeader(doc, logo, label, periodStr, dept, employees.length, now);

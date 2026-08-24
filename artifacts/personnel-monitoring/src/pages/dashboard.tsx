@@ -62,7 +62,7 @@ export default function Dashboard() {
           <p className="text-xs font-bold text-gray-500 tracking-[0.25em] uppercase">Offices</p>
           <h1 className="text-3xl font-bold text-gray-900 mt-2">Select an Office</h1>
           <p className="text-gray-500 mt-2">
-            Choose an office, then select a sub-unit to view its monitoring data.
+            Choose an office, then select a sub-unit to view its attendance data.
           </p>
         </div>
 

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { personnelTable, monitoringLogsTable, accountsTable, sessionsTable } from "@workspace/db";
+import { personnelTable, attendanceLogsTable, accountsTable, sessionsTable } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 
 const router: IRouter = Router();
@@ -33,13 +33,13 @@ router.get("/", async (req, res) => {
   }).from(personnelTable);
 
   const todayLogs = await db.select({
-    employeeId: monitoringLogsTable.employeeId,
-    department: monitoringLogsTable.department,
+    employeeId: attendanceLogsTable.employeeId,
+    department: attendanceLogsTable.department,
   })
-    .from(monitoringLogsTable)
+    .from(attendanceLogsTable)
     .where(and(
-      gte(monitoringLogsTable.timestamp, startOfDay),
-      lte(monitoringLogsTable.timestamp, endOfDay)
+      gte(attendanceLogsTable.timestamp, startOfDay),
+      lte(attendanceLogsTable.timestamp, endOfDay)
     ));
 
   const presentToday = new Set(todayLogs.map(l => l.employeeId));

@@ -50,5 +50,5 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
   await seedAdmin();
-  startBackupScheduler(); // D6 — nightly monitoring + personnel backup
+  startBackupScheduler(); // D6 — nightly attendance + personnel backup
 });

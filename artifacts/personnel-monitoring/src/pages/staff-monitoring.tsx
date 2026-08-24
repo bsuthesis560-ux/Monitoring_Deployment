@@ -25,7 +25,7 @@ interface Personnel {
   createdAt: string;
 }
 
-interface MonitoringLog {
+interface AttendanceLog {
   id: number;
   employeeId: string;
   name: string;
@@ -45,7 +45,7 @@ export default function StaffMonitoring() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
-  const [logs, setLogs] = useState<MonitoringLog[]>([]);
+  const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [logsError, setLogsError] = useState(false);
   const [personnelLoading, setPersonnelLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -125,7 +125,7 @@ export default function StaffMonitoring() {
 
   // ── Record Summary helpers ──────────────────────────────────────────────────
 
-  function getLogsForPeriod(): MonitoringLog[] {
+  function getLogsForPeriod(): AttendanceLog[] {
     const selected = new Date(summaryDate + "T00:00:00");
 
     if (summaryPeriod === "daily") {
@@ -164,8 +164,8 @@ export default function StaffMonitoring() {
     return [];
   }
 
-  function groupByDept(periodLogs: MonitoringLog[]): Record<string, MonitoringLog[]> {
-    const map: Record<string, MonitoringLog[]> = {};
+  function groupByDept(periodLogs: AttendanceLog[]): Record<string, AttendanceLog[]> {
+    const map: Record<string, AttendanceLog[]> = {};
     for (const l of periodLogs) {
       if (!map[l.department]) map[l.department] = [];
       map[l.department].push(l);
@@ -204,8 +204,8 @@ export default function StaffMonitoring() {
     });
   }
 
-  // Render a BatStateU-style 2-column monitoring sheet for a department
-  function renderMonitoringSheet(deptLogs: MonitoringLog[], dept: string) {
+  // Render a BatStateU-style 2-column attendance sheet for a department
+  function renderAttendanceSheet(deptLogs: AttendanceLog[], dept: string) {
     const sorted = [...deptLogs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     const TOTAL_SLOTS = 60;
     const COL_SIZE = 30;
@@ -229,7 +229,7 @@ export default function StaffMonitoring() {
           <div>
             <p className="font-bold text-gray-800 text-sm">{dept}</p>
             <p className="text-gray-500 text-xs">
-              BatStateU-REC-ATT-11 · Employee Monitoring Summary · {periodLabel()}
+              BatStateU-REC-ATT-11 · Employee Attendance Summary · {periodLabel()}
             </p>
           </div>
           <span className="text-xs text-gray-500 font-medium">{sorted.length} record(s)</span>
@@ -286,7 +286,7 @@ export default function StaffMonitoring() {
           <div>
             <h2 className="text-2xl font-bold text-gray-900">No Sub-unit Selected</h2>
             <p className="text-gray-500 mt-2 max-w-sm">
-              Please go to the Dashboard, choose an office, then select a sub-unit to view its personnel and monitoring data.
+              Please go to the Dashboard, choose an office, then select a sub-unit to view its personnel and attendance data.
             </p>
           </div>
           <button
@@ -345,7 +345,7 @@ export default function StaffMonitoring() {
             className={`px-4 py-2 rounded-xl font-semibold text-sm transition-colors ${activeTab === "logs" ? "bg-primary text-white shadow-sm" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}
           >
             <Clock className="inline w-4 h-4 mr-1.5 -mt-0.5" />
-            Monitoring Logs
+            Attendance Logs
             {activeTab === "logs" && (
               <span className="ml-2 bg-white/20 text-white text-xs px-1.5 py-0.5 rounded-full">{logs.length}</span>
             )}
@@ -374,20 +374,20 @@ export default function StaffMonitoring() {
         {/* Content */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0">
 
-          {/* Monitoring Logs Tab */}
+          {/* Attendance Logs Tab */}
           {activeTab === "logs" && (
             <div className="overflow-auto flex-1">
               {logsError ? (
                 <div className="h-full flex flex-col items-center justify-center p-8 text-gray-400 gap-3">
                   <WifiOff className="w-10 h-10" />
-                  <p className="font-medium">Could not load monitoring logs.</p>
+                  <p className="font-medium">Could not load attendance logs.</p>
                 </div>
               ) : filteredLogs.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center p-8 text-gray-400 gap-3">
                   <Clock className="w-10 h-10" />
-                  <p className="font-medium text-gray-600">No monitoring logs yet for {isAdmin ? selectedDept : "your department"}.</p>
+                  <p className="font-medium text-gray-600">No attendance logs yet for {isAdmin ? selectedDept : "your department"}.</p>
                   <p className="text-sm text-center max-w-sm">
-                    Start the facial recognition service on your local machine to begin logging monitoring events.
+                    Start the facial recognition service on your local machine to begin logging attendance.
                   </p>
                 </div>
               ) : (
@@ -640,7 +640,7 @@ export default function StaffMonitoring() {
                 {periodLogs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-64 text-gray-400 gap-3">
                     <BarChart3 className="w-12 h-12 opacity-40" />
-                    <p className="font-medium text-gray-600">No monitoring records for this period.</p>
+                    <p className="font-medium text-gray-600">No attendance records for this period.</p>
                     <p className="text-sm text-center max-w-sm">Select a different date or period to view archived records.</p>
                   </div>
                 ) : (
@@ -688,7 +688,7 @@ export default function StaffMonitoring() {
                           </div>
                           {isExpanded && (
                             <div className="px-5 pb-5">
-                              {renderMonitoringSheet(deptLogs, dept)}
+                              {renderAttendanceSheet(deptLogs, dept)}
                             </div>
                           )}
                         </div>
