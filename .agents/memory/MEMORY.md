@@ -1,1 +1,0 @@
-- [Neon connection behavior](neon-connection.md) — set the public schema after pooled connections are established.
