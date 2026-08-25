@@ -153,7 +153,7 @@ router.post("/", validate(createPersonnelSchema), async (req, res) => {
 
   // P5/P6 — validate each submitted photo (MIME type + size)
   const allPhotos: [string, string][] = [
-    ...Object.entries(photos ?? {}),
+    ...(Object.entries(photos ?? {}) as [string, string][]),
     ...(photoUrl ? [["photoUrl", photoUrl] as [string, string]] : []),
   ];
   for (const [field, dataUri] of allPhotos) {
@@ -236,7 +236,7 @@ router.get("/:id", async (req, res) => {
   const account = await getSessionAccount(req);
   if (!account) { res.status(401).json({ error: "Not authenticated" }); return; }
 
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
   const rows = await db
@@ -273,14 +273,14 @@ router.put("/:id", validate(updatePersonnelSchema), async (req, res) => {
   const adminId = await requireAdmin(req, res);
   if (adminId === null) return;
 
-  const id = parseInt(req.params.id);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid ID" }); return; }
 
   const { lastName, firstName, middleInitial, department, position, photoUrl, photos } = req.body;
 
   // P5/P6 — validate each submitted photo (MIME type + size)
   const allPhotos: [string, string][] = [
-    ...Object.entries(photos ?? {}),
+    ...(Object.entries(photos ?? {}) as [string, string][]),
     ...(photoUrl ? [["photoUrl", photoUrl] as [string, string]] : []),
   ];
   for (const [field, dataUri] of allPhotos) {

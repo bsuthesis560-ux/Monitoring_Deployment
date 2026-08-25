@@ -4,17 +4,19 @@ import * as schema from "./schema";
 
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
+const databaseUrl = process.env.NEON_DATABASE_URL ?? process.env.DATABASE_URL;
+
+if (!databaseUrl) {
   throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
+    "NEON_DATABASE_URL or DATABASE_URL must be set. Did you forget to configure the database?",
   );
 }
 
-const sslRequired = process.env.DATABASE_URL?.includes("sslmode=require") ||
-                    process.env.DATABASE_URL?.includes("neon.tech");
+const sslRequired =
+  databaseUrl.includes("sslmode=require") || databaseUrl.includes("neon.tech");
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: databaseUrl,
   ...(sslRequired && { ssl: { rejectUnauthorized: false } }),
 });
 export const db = drizzle(pool, { schema });
